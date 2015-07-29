@@ -29,7 +29,7 @@ import org.terasology.core.world.generator.facetProviders.SeaLevelProvider;
 import org.terasology.core.world.generator.facetProviders.SurfaceToDensityProvider;
 import org.terasology.engine.SimpleUri;
 import org.terasology.registry.CoreRegistry;
-import org.terasology.world.chunks.CoreChunk;
+import org.terasology.world.generation.BaseFacetedWorldGenerator;
 import org.terasology.world.generation.FacetProvider;
 import org.terasology.world.generation.World;
 import org.terasology.world.generation.WorldBuilder;
@@ -39,7 +39,7 @@ import org.terasology.world.generator.plugin.WorldGeneratorPluginLibrary;
 import java.util.LinkedList;
 import java.util.List;
 
-public abstract class PluggableWorldGenerator implements WorldGenerator {
+public abstract class PluggableWorldGenerator extends BaseFacetedWorldGenerator implements WorldGenerator {
     private World world;
     private List<ChunkDecorator> chunkDecorators = new LinkedList<>();
     private List<FeatureGenerator> featureGenerators = new LinkedList<>();
@@ -49,16 +49,13 @@ public abstract class PluggableWorldGenerator implements WorldGenerator {
     private int maxLevel = 220;
     private float biomeDiversity = 0.5f;
 
-    private SimpleUri uri;
-    private String worldSeed;
-
     private Function<Float, Float> temperatureFunction = IdentityAlphaFunction.singleton();
     private Function<Float, Float> humidityFunction = IdentityAlphaFunction.singleton();
 
     private PerlinSurfaceHeightProvider surfaceHeightProvider;
 
     public PluggableWorldGenerator(SimpleUri uri) {
-        this.uri = uri;
+        super(uri);
     }
 
     public void addChunkDecorator(ChunkDecorator chunkGenerator) {
@@ -108,25 +105,26 @@ public abstract class PluggableWorldGenerator implements WorldGenerator {
                 hillinessDiversity, hillynessFunction, seaLevel, maxLevel);
     }
 
+    protected abstract void setupGenerator();
+
     @Override
-    public void initialize() {
+    protected WorldBuilder createWorld() {
         setupGenerator();
-
-        ClimateConditionsSystem environmentSystem = CoreRegistry.get(ClimateConditionsSystem.class);
-        environmentSystem.configureHumidity(seaLevel, maxLevel, biomeDiversity, humidityFunction, 0, 1);
-        environmentSystem.configureTemperature(seaLevel, maxLevel, biomeDiversity, temperatureFunction, -20, 40);
-
-        ConditionsBaseField temperatureBaseField = environmentSystem.getTemperatureBaseField();
-        ConditionsBaseField humidityBaseField = environmentSystem.getHumidityBaseField();
-
         WorldBuilder worldBuilder = new WorldBuilder(CoreRegistry.get(WorldGeneratorPluginLibrary.class));
-        worldBuilder.setSeed(getSeed());
         worldBuilder.addProvider(new BiomeProvider());
         worldBuilder.addProvider(new HillynessProvider());
         worldBuilder.addProvider(surfaceHeightProvider);
         worldBuilder.addProvider(new SurfaceToDensityProvider());
-        worldBuilder.addProvider(new HumidityProvider(humidityBaseField));
-        worldBuilder.addProvider(new TemperatureProvider(temperatureBaseField));
+        ClimateConditionsSystem environmentSystem = CoreRegistry.get(ClimateConditionsSystem.class);
+        if (environmentSystem != null) {
+            environmentSystem.configureHumidity(seaLevel, maxLevel, biomeDiversity, humidityFunction, 0, 1);
+            environmentSystem.configureTemperature(seaLevel, maxLevel, biomeDiversity, temperatureFunction, -20, 40);
+
+            ConditionsBaseField temperatureBaseField = environmentSystem.getTemperatureBaseField();
+            ConditionsBaseField humidityBaseField = environmentSystem.getHumidityBaseField();
+            worldBuilder.addProvider(new HumidityProvider(humidityBaseField));
+            worldBuilder.addProvider(new TemperatureProvider(temperatureBaseField));
+        }
         worldBuilder.addProvider(new TerrainVariationProvider());
         worldBuilder.addProvider(new SeaLevelProvider(seaLevel));
 
@@ -140,40 +138,10 @@ public abstract class PluggableWorldGenerator implements WorldGenerator {
         for (FeatureGenerator featureGenerator : featureGenerators) {
             worldBuilder.addRasterizer(featureGenerator);
         }
-
-        world = worldBuilder.build();
-        world.initialize();
-    }
-
-    @Override
-    public void setWorldSeed(String seedString) {
-        worldSeed = seedString;
-    }
-
-    @Override
-    public String getWorldSeed() {
-        return worldSeed;
+        return worldBuilder;
     }
 
     public long getSeed() {
-        return worldSeed.hashCode();
-    }
-
-    protected abstract void setupGenerator();
-
-
-    @Override
-    public void createChunk(CoreChunk chunk) {
-        world.rasterizeChunk(chunk);
-    }
-
-    @Override
-    public SimpleUri getUri() {
-        return uri;
-    }
-
-    @Override
-    public World getWorld() {
-        return world;
+        return getWorldSeed().hashCode();
     }
 }
